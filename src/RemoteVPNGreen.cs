@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace WTTG2Mods
 {
-    [BepInPlugin("com.wttg2.remotevpn.greenfix", "Remote VPN Green Fix", "1.1.0")]
+    [BepInPlugin("com.wttg2.remotevpn.greenfix", "Remote VPN Green Fix", "1.1.1")]
     public sealed class RemoteVPNGreenPlugin : BaseUnityPlugin
     {
         private ConfigEntry<bool> pluginEnabled, greenPreview, maintainCurrency, debugLogging;
@@ -37,7 +37,7 @@ namespace WTTG2Mods
             currencyField = typeof(RemoteVPNObject).GetField("myCurrency", BindingFlags.Instance | BindingFlags.NonPublic);
             if (rendererField == null) { colorFailed = true; Logger.LogWarning("Green preview unavailable: expected renderer field was not found. Other features remain available."); }
             if (currencyField == null || currencyField.FieldType != typeof(VPNCurrencyData)) { currencyFailed = true; Logger.LogWarning("Currency override unavailable: expected data field was not found. Other features remain available."); }
-            Logger.LogInfo("Remote VPN Green Fix 1.1.0 ready. Cached discovery; no Harmony patches; F10 reloads config. Existing 120/3 override is configurable.");
+            Logger.LogInfo("Remote VPN Green Fix 1.1.1 ready. Cached discovery; no Harmony patches; F10 reloads config. Existing 120/3 override is configurable.");
         }
 
         private void LateUpdate()
@@ -106,18 +106,29 @@ namespace WTTG2Mods
                 // Restore the old setting before switching to another configured override.
                 if (seconds != lastAppliedTime || value != lastAppliedValue) RestoreCurrency();
                 lastAppliedTime = seconds; lastAppliedValue = value;
+                // A picked-up object may be reused. Never retain its old placement's baseline.
+                stale.Clear();
+                foreach (KeyValuePair<RemoteVPNObject, VPNCurrencyData> entry in originals)
+                {
+                    if (entry.Key != null && entry.Key.Placed) continue;
+                    if (entry.Key != null) RestoreObjectCurrency(entry.Key, entry.Value);
+                    stale.Add(entry.Key);
+                }
+                foreach (RemoteVPNObject remote in stale) originals.Remove(remote);
+                stale.Clear();
                 UnityEngine.Object[] found = UnityEngine.Object.FindObjectsOfType(typeof(RemoteVPNObject));
                 foreach (UnityEngine.Object item in found)
                 {
                     RemoteVPNObject remote = item as RemoteVPNObject;
-                    if (remote == null) continue;
-                    if (!originals.ContainsKey(remote)) originals.Add(remote, (VPNCurrencyData)currencyField.GetValue(remote));
-                    remote.SetCurrency(new VPNCurrencyData(seconds, value));
+                    // Pooled/unplaced objects have not received their location's normal values yet.
+                    if (remote == null || !remote.Placed) continue;
+                    VPNCurrencyData current = (VPNCurrencyData)currencyField.GetValue(remote);
+                    if (!originals.ContainsKey(remote)) originals.Add(remote, current);
+                    // PlaceMe/SetPlaceMe recalculates currency. Restore that latest game value,
+                    // including when pickup and replacement occurred between discovery ticks.
+                    else if (!Matches(current, lastAppliedTime, lastAppliedValue)) originals[remote] = current;
+                    if (!Matches(current, seconds, value)) remote.SetCurrency(new VPNCurrencyData(seconds, value));
                 }
-                stale.Clear();
-                foreach (RemoteVPNObject remote in originals.Keys) if (remote == null) stale.Add(remote);
-                foreach (RemoteVPNObject remote in stale) originals.Remove(remote);
-                stale.Clear();
             }
             catch (Exception ex)
             {
@@ -146,16 +157,25 @@ namespace WTTG2Mods
             foreach (KeyValuePair<RemoteVPNObject, VPNCurrencyData> entry in originals)
             {
                 if (entry.Key == null) continue;
-                try
-                {
-                    VPNCurrencyData current = (VPNCurrencyData)currencyField.GetValue(entry.Key);
-                    // Do not replace a later change made by the game or another mod.
-                    if (current.GenerateTime == lastAppliedTime && current.GenerateDOSCoinValue == lastAppliedValue)
-                        entry.Key.SetCurrency(entry.Value);
-                }
-                catch (Exception ex) { Logger.LogWarning("Could not restore an unavailable VPN object: " + ex.GetType().Name); }
+                RestoreObjectCurrency(entry.Key, entry.Value);
             }
             originals.Clear(); stale.Clear();
+        }
+
+        private static bool Matches(VPNCurrencyData current, float seconds, float value)
+        {
+            return current.GenerateTime == seconds && current.GenerateDOSCoinValue == value;
+        }
+
+        private void RestoreObjectCurrency(RemoteVPNObject remote, VPNCurrencyData original)
+        {
+            try
+            {
+                VPNCurrencyData current = (VPNCurrencyData)currencyField.GetValue(remote);
+                // Do not replace a later change made by the game or another mod.
+                if (Matches(current, lastAppliedTime, lastAppliedValue)) remote.SetCurrency(original);
+            }
+            catch (Exception ex) { Logger.LogWarning("Could not restore an unavailable VPN object: " + ex.GetType().Name); }
         }
 
         private void RestoreAll() { RestorePreview(); RestoreCurrency(); placement = null; }
