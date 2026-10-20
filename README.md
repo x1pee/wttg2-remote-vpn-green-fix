@@ -1,6 +1,8 @@
-# Remote VPN Green Fix
+# Remote VPN Green Fix — Welcome to the Game II
 
-WTTG2 VPN mod for non-Steam builds. Green preview and configurable generation.
+VPN mod for Welcome to the Game II (WTTG2): green placement preview and adjustable DOSCoin generation.
+
+**Скачать:** [готовые файлы](https://github.com/x1pee/wttg2-remote-vpn-green-fix/releases/tag/v1.1.0).
 
 Переработка существующего Remote VPN Green Fix: кеширование объектов, проверка раз в секунду вместо поиска каждый кадр и MaterialPropertyBlock для зелёного предпросмотра.
 
